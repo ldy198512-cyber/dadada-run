@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>다다다 달리기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=IBM+Plex+Sans+KR:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* 운동회 날의 운동장: 잔디, 황토 트랙, 분필 선 */
+  --grass:#17694A; --grass-deep:#0F4D36; --clay:#D4573A; --clay-deep:#B4432A;
+  --chalk:#FFF8EC; --ink:#14202B; --gold:#FFD447;
+  --display:'Black Han Sans','Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+  --body:'IBM Plex Sans KR','Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--grass);color:var(--chalk);font-family:var(--body);overflow:hidden;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;overscroll-behavior:none}
+.screen{position:fixed;inset:0;display:none;flex-direction:column;padding:max(20px,env(safe-area-inset-top)) 20px max(20px,env(safe-area-inset-bottom))}
+.screen.on{display:flex}
+h1{font-family:var(--display);font-weight:400;font-size:44px;line-height:1.05;letter-spacing:-.01em}
+h1 small{display:block;font-family:var(--body);font-size:15px;font-weight:600;opacity:.8;margin-bottom:8px;letter-spacing:.02em}
+
+/* 입장 */
+#join{background:repeating-linear-gradient(90deg,var(--grass) 0 56px,var(--grass-deep) 56px 112px);gap:18px;overflow-y:auto}
+.card{background:var(--chalk);color:var(--ink);border-radius:18px;padding:20px;display:flex;flex-direction:column;gap:16px;box-shadow:0 6px 0 rgba(0,0,0,.25)}
+label.f{font-weight:700;font-size:14px;display:flex;flex-direction:column;gap:8px}
+input[type=text]{font:inherit;font-size:20px;font-weight:600;padding:14px;border:3px solid var(--ink);border-radius:12px;background:#fff;color:var(--ink);-webkit-user-select:text;user-select:text;width:100%}
+input[type=text]:focus-visible{outline:4px solid var(--gold);outline-offset:1px}
+.teams{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.teams button{font:inherit;font-weight:700;font-size:18px;padding:16px 8px;border-radius:12px;border:3px solid var(--ink);background:#fff;color:var(--ink);display:flex;align-items:center;justify-content:center;gap:8px}
+.teams button i{width:16px;height:16px;border-radius:50%;border:2px solid var(--ink);flex:none}
+.teams button[aria-pressed=true]{background:var(--ink);color:var(--chalk)}
+.teams button:focus-visible,.go:focus-visible,.link:focus-visible{outline:4px solid var(--gold);outline-offset:2px}
+.go{font-family:var(--display);font-size:26px;padding:18px;border-radius:14px;border:0;background:var(--clay);color:var(--chalk);box-shadow:0 5px 0 var(--clay-deep)}
+.go:disabled{opacity:.45}
+.err{color:#B3261E;font-weight:700;font-size:14px;min-height:1.2em}
+
+/* 대기 */
+#wait{background:var(--grass);align-items:center;justify-content:center;text-align:center;gap:14px}
+.badge{display:inline-flex;align-items:center;gap:10px;background:var(--chalk);color:var(--ink);font-weight:700;font-size:20px;padding:10px 18px;border-radius:999px}
+.badge i{width:18px;height:18px;border-radius:50%;border:2px solid var(--ink)}
+#waitMsg{font-size:18px;font-weight:600;line-height:1.5;max-width:18em}
+.dots::after{content:'';animation:dots 1.5s steps(4) infinite}
+@keyframes dots{0%{content:''}25%{content:'.'}50%{content:'..'}75%{content:'...'}}
+.link{background:none;border:0;color:var(--chalk);font:inherit;font-weight:600;text-decoration:underline;padding:12px;opacity:.85}
+
+/* 경기 */
+#race{background:var(--clay);padding:0;touch-action:none}
+#race::before,#race::after{content:'';position:absolute;left:0;right:0;height:4px;background:rgba(255,248,236,.55)}
+#race::before{top:21%}#race::after{bottom:15%}
+#top{position:relative;z-index:2;padding:max(18px,env(safe-area-inset-top)) 20px 0;display:flex;justify-content:space-between;align-items:flex-start;pointer-events:none}
+#rank{font-family:var(--display);font-size:64px;line-height:1}
+#rank small{font-family:var(--body);font-size:16px;font-weight:700;opacity:.85;margin-left:4px}
+#sub{font-weight:700;font-size:15px;text-align:right;line-height:1.4}
+#cv{position:absolute;left:0;top:22%;width:100%;height:48%;pointer-events:none}
+#hint{position:absolute;left:0;right:0;top:66%;text-align:center;font-family:var(--display);font-size:54px;pointer-events:none;text-shadow:0 4px 0 var(--clay-deep)}
+#bar{position:absolute;left:20px;right:20px;bottom:max(26px,env(safe-area-inset-bottom));pointer-events:none}
+#bar .tr{height:22px;border-radius:999px;background:rgba(20,32,43,.35);overflow:hidden;border:3px solid var(--chalk)}
+#bar .fl{height:100%;width:0;background:var(--gold)}
+#bar p{display:flex;justify-content:space-between;font-weight:700;font-size:14px;margin-top:8px;font-variant-numeric:tabular-nums}
+#cd{position:absolute;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;background:rgba(20,32,43,.72);z-index:5;font-family:var(--display);font-size:170px;gap:6px}
+#cd.on{display:flex}
+#cd small{font-family:var(--body);font-size:18px;font-weight:700}
+.rip{position:absolute;width:90px;height:90px;margin:-45px 0 0 -45px;border-radius:50%;border:5px solid var(--chalk);pointer-events:none;animation:rip .35s ease-out forwards}
+@keyframes rip{from{transform:scale(.3);opacity:.9}to{transform:scale(1.5);opacity:0}}
+
+/* 결과 */
+#done{background:var(--ink);align-items:center;justify-content:center;text-align:center;gap:14px}
+#doneBig{font-family:var(--display);font-size:104px;line-height:1;color:var(--gold)}
+#doneSub{font-size:20px;font-weight:700;line-height:1.5}
+#doneList{width:100%;max-width:360px;display:flex;flex-direction:column;gap:8px;margin-top:8px}
+#doneList div{display:flex;align-items:center;gap:10px;background:rgba(255,248,236,.1);border-radius:10px;padding:10px 14px;font-weight:700;font-variant-numeric:tabular-nums}
+#doneList div.me{background:var(--chalk);color:var(--ink)}
+#doneList i{width:14px;height:14px;border-radius:50%;flex:none}
+#doneList span:last-child{margin-left:auto;font-weight:600;opacity:.85}
+
+#net{position:fixed;left:50%;top:10px;transform:translateX(-50%);background:var(--ink);color:var(--chalk);font-weight:700;font-size:13px;padding:8px 14px;border-radius:999px;z-index:20;display:none}
+#net.on{display:block}
+@media (prefers-reduced-motion:reduce){.rip,.dots::after{animation:none}}
+</style>
+</head>
+<body>
+<div id="net">서버에 다시 연결하는 중…</div>
+
+<section class="screen on" id="join">
+  <h1><small>폰을 두드려 달리는 운동회</small>다다다 달리기</h1>
+  <form class="card" id="joinForm">
+    <label class="f" for="name">이름
+      <input type="text" id="name" maxlength="10" autocomplete="off" placeholder="예: 김다솜" enterkeyhint="done">
+    </label>
+    <div class="f" style="font-weight:700;font-size:14px;display:flex;flex-direction:column;gap:8px">소속 본부
+      <div class="teams" id="teams"></div>
+    </div>
+    <p class="err" id="err" role="alert"></p>
+    <button class="go" id="goBtn" type="submit">입장하기</button>
+  </form>
+</section>
+
+<section class="screen" id="wait">
+  <div class="badge"><i id="wDot"></i><span id="wWho"></span></div>
+  <h1 id="waitTitle">입장 완료</h1>
+  <p id="waitMsg"></p>
+  <button class="link" id="editBtn" type="button">이름·본부 바꾸기</button>
+</section>
+
+<section class="screen" id="race">
+  <div id="top">
+    <div id="rank">-<small>위</small></div>
+    <div id="sub"></div>
+  </div>
+  <canvas id="cv"></canvas>
+  <div id="hint">두드리세요!</div>
+  <div id="bar"><div class="tr"><div class="fl" id="fill"></div></div><p><span id="barL"></span><span id="barR"></span></p></div>
+  <div id="cd"><span id="cdN">3</span><small id="cdS"></small></div>
+</section>
+
+<section class="screen" id="done">
+  <p id="doneTop" style="font-weight:700;font-size:18px"></p>
+  <div id="doneBig"></div>
+  <p id="doneSub"></p>
+  <div id="doneList"></div>
+  <p style="opacity:.7;font-weight:600;margin-top:8px">다음 경기를 기다려 주세요</p>
+</section>
+
+<script src="/runner.js"></script>
+<script>
+const $ = (s) => document.getElementById(s);
+const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+let id = store.get('ddd_id'); if (!id) { id = 'p' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); store.set('ddd_id', id); }
+let TEAMS = [], me = { name: store.get('ddd_name') || '', team: -1 }, joined = false;
+let ws, st = { phase: 'lobby' }, off = 0, count = 0, sent = 0, info = {}, vel = 0, phase = 0, scroll = 0;
+const savedTeam = store.get('ddd_team'); if (savedTeam !== null) me.team = +savedTeam;
+$('name').value = me.name;
+
+function show(idName) { for (const s of document.querySelectorAll('.screen')) s.classList.toggle('on', s.id === idName); }
+const now = () => Date.now() + off;
+
+function renderTeams() {
+  const box = $('teams'); box.textContent = '';
+  TEAMS.forEach((t, i) => {
+    const b = document.createElement('button'); b.type = 'button'; b.setAttribute('aria-pressed', String(me.team === i));
+    const dot = document.createElement('i'); dot.style.background = TEAM_COLORS[i];
+    b.append(dot, document.createTextNode(t));
+    b.onclick = () => { me.team = i; renderTeams(); };
+    box.append(b);
+  });
+}
+
+function connect() {
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+  ws.onopen = () => { $('net').classList.remove('on'); ws.send(JSON.stringify({ t: 'teams' })); if (joined) hello(); };
+  ws.onclose = () => { $('net').classList.add('on'); setTimeout(connect, 1000); };
+  ws.onmessage = (e) => { let m; try { m = JSON.parse(e.data); } catch (x) { return; } on(m); };
+}
+function hello() { ws.send(JSON.stringify({ t: 'hello', role: 'player', id, name: me.name, team: me.team })); }
+
+function on(m) {
+  if (m.t === 'teams') { TEAMS = m.teams; if (me.team >= TEAMS.length) me.team = -1; renderTeams(); }
+  else if (m.t === 'welcome') { me.team = m.team; me.name = m.name; count = Math.max(count, m.taps || 0); $('wDot').style.background = TEAM_COLORS[me.team]; $('wWho').textContent = TEAMS[me.team] + ' · ' + me.name; }
+  else if (m.t === 'kicked') { joined = false; show('join'); }
+  else if (m.t === 'me') { info = m; off = m.now - Date.now(); }
+  else if (m.t === 'state') {
+    const prev = st; st = m; off = m.now - Date.now();
+    if (!joined) return;
+    if (m.phase === 'countdown' && (prev.phase !== 'countdown' || prev.startAt !== m.startAt)) { count = 0; sent = 0; info = {}; vel = 0; }
+    route();
+  }
+}
+
+function route() {
+  if (!joined) return show('join');
+  if (st.phase === 'lobby') { $('waitTitle').textContent = '입장 완료'; $('waitMsg').innerHTML = '앞의 큰 화면에 이름이 보이면 준비 끝!<br>곧 시작합니다<span class="dots"></span>'; $('editBtn').style.display = ''; return show('wait'); }
+  if ((st.phase === 'countdown' || st.phase === 'racing') && !st.in) { $('waitTitle').textContent = '경기 진행 중'; $('waitMsg').textContent = '지금 경기가 끝나면 다음 경기부터 함께 달립니다.'; $('editBtn').style.display = 'none'; return show('wait'); }
+  if (st.phase === 'countdown' || st.phase === 'racing') { $('sub').textContent = st.mode === 'team' ? TEAMS[me.team] + ' 대항전' : '개인전'; show('race'); sizeCanvas(); return; }
+  if (st.phase === 'finished') { renderDone(); return show('done'); }
+}
+
+function renderDone() {
+  const r = st.results; const list = $('doneList'); list.textContent = '';
+  if (!r) return;
+  const row = (color, a, b, mine) => { const d = document.createElement('div'); if (mine) d.className = 'me'; const i = document.createElement('i'); i.style.background = color; const s1 = document.createElement('span'); s1.textContent = a; const s2 = document.createElement('span'); s2.textContent = b; d.append(i, s1, s2); list.append(d); };
+  if (r.mode === 'solo') {
+    const mine = r.list.find(x => x.id === id);
+    $('doneTop').textContent = '개인전 결과';
+    if (!mine) { $('doneBig').textContent = '관전'; $('doneSub').textContent = '이번 경기는 참가하지 않았어요'; }
+    else { $('doneBig').textContent = mine.rank + '위'; $('doneSub').textContent = (mine.ms ? '기록 ' + fmtTime(mine.ms) : mine.taps + '탭까지 달렸어요') + ' · 전체 ' + r.list.length + '명'; }
+    r.list.slice(0, 3).forEach(x => row(TEAM_COLORS[x.team], x.rank + '위  ' + x.name, x.ms ? fmtTime(x.ms) : x.taps + '탭', x.id === id));
+  } else {
+    const t = r.teams.find(x => x.team === me.team); const mine = r.players.find(x => x.id === id);
+    $('doneTop').textContent = '본부 대항전 결과';
+    if (!t || !mine) { $('doneBig').textContent = '관전'; $('doneSub').textContent = '이번 경기는 참가하지 않았어요'; }
+    else {
+      const mates = r.players.filter(x => x.team === me.team).sort((a, b) => b.taps - a.taps);
+      $('doneBig').textContent = t.rank + '위';
+      $('doneSub').textContent = TEAMS[me.team] + ' · 내 기록 ' + mine.taps + '탭 (본부 내 ' + (mates.findIndex(x => x.id === id) + 1) + '위)';
+    }
+    r.teams.forEach(x => row(TEAM_COLORS[x.team], x.rank + '위  ' + TEAMS[x.team], x.ms ? fmtTime(x.ms) : '평균 ' + x.avg + '탭', x.team === me.team));
+  }
+}
+
+// ---------- 입장 ----------
+$('joinForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const name = $('name').value.trim();
+  if (!name) { $('err').textContent = '이름을 입력해 주세요.'; return; }
+  if (me.team < 0) { $('err').textContent = '소속 본부를 골라 주세요.'; return; }
+  if (!ws || ws.readyState !== 1) { $('err').textContent = '서버에 연결하는 중입니다. 잠시 후 다시 눌러 주세요.'; return; }
+  $('err').textContent = ''; me.name = name; store.set('ddd_name', name); store.set('ddd_team', String(me.team));
+  joined = true; hello(); $('name').blur();
+  try { navigator.wakeLock && navigator.wakeLock.request('screen').catch(() => {}); } catch (x) {}
+});
+$('editBtn').onclick = () => { if (ws.readyState === 1) ws.send(JSON.stringify({ t: 'leave' })); joined = false; renderTeams(); show('join'); };
+
+// ---------- 탭 ----------
+$('race').addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  if (st.phase !== 'racing' && !(st.phase === 'countdown' && now() >= st.startAt)) return;
+  if (now() < st.startAt) return;
+  if (st.mode === 'solo' && count >= st.goal) return;
+  count++; vel = Math.min(vel + 1, 14);
+  const r = document.createElement('div'); r.className = 'rip'; r.style.left = e.clientX + 'px'; r.style.top = e.clientY + 'px';
+  $('race').append(r); setTimeout(() => r.remove(), 360);
+});
+document.addEventListener('contextmenu', (e) => e.preventDefault());
+document.addEventListener('gesturestart', (e) => e.preventDefault());
+setInterval(() => { if (count !== sent && ws && ws.readyState === 1 && st.phase === 'racing') { sent = count; ws.send(JSON.stringify({ t: 'tap', n: count })); } }, 60);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && joined) { try { navigator.wakeLock && navigator.wakeLock.request('screen').catch(() => {}); } catch (x) {} } });
+
+// ---------- 경기 화면 그리기 ----------
+const cv = $('cv'), ctx = cv.getContext('2d'); let CW = 0, CH = 0;
+function sizeCanvas() { const d = Math.min(devicePixelRatio || 1, 2); const r = cv.getBoundingClientRect(); CW = r.width; CH = r.height; cv.width = CW * d; cv.height = CH * d; ctx.setTransform(d, 0, 0, d, 0, 0); }
+addEventListener('resize', sizeCanvas);
+let last = performance.now();
+function frame(t) {
+  const dt = Math.min(0.05, (t - last) / 1000); last = t;
+  if ($('race').classList.contains('on') && CW) {
+    vel *= Math.exp(-dt * 3.2); phase += vel * dt * 4.2; scroll = (scroll + vel * dt * 46) % 90;
+    ctx.clearRect(0, 0, CW, CH);
+    const gy = CH * 0.86;
+    ctx.fillStyle = 'rgba(255,248,236,.5)';
+    for (let x = -scroll; x < CW; x += 90) ctx.fillRect(x, gy + 14, 44, 5);
+    drawRunner(ctx, CW * 0.5, gy, Math.min(CH * 0.78, 230), TEAM_COLORS[me.team] || '#fff', phase, vel > 0.25);
+
+    const remain = st.startAt - now(); const cd = $('cd');
+    if (remain > 0) { cd.classList.add('on'); $('cdN').textContent = Math.min(3, Math.ceil(remain / 1000)); $('cdS').textContent = '출발 신호가 나면 화면 아무 곳이나 빠르게 두드리세요'; }
+    else cd.classList.remove('on');
+
+    const goal = st.goal || 150;
+    if (st.mode === 'solo') {
+      const fin = count >= goal;
+      $('rank').firstChild.nodeValue = info.rank || '-';
+      $('fill').style.width = Math.min(100, count / goal * 100) + '%';
+      $('barL').textContent = '내 탭 ' + Math.min(count, goal) + ' / ' + goal;
+      $('barR').textContent = info.total ? '전체 ' + info.total + '명' : '';
+      $('hint').textContent = fin ? '골인!' : (remain > 0 ? '' : '두드리세요!');
+    } else {
+      $('rank').firstChild.nodeValue = info.rank || '-';
+      $('fill').style.width = Math.min(100, (info.avg || 0) / goal * 100) + '%';
+      $('barL').textContent = '우리 본부 ' + Math.round((info.avg || 0) / goal * 100) + '%';
+      $('barR').textContent = '내 탭 ' + count;
+      $('hint').textContent = info.ms ? '본부 골인!' : (remain > 0 ? '' : '두드리세요!');
+    }
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+connect();
+// 무료 서버가 대기 중에 잠들지 않도록 주기적으로 신호를 보냅니다
+setInterval(() => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'ping' })); }, 240000);
+</script>
+</body>
+</html>

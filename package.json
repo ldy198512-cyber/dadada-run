@@ -1,0 +1,9 @@
+{
+  "name": "dadada-run",
+  "version": "1.0.0",
+  "description": "50명이 함께하는 모바일 탭 달리기 게임",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" },
+  "dependencies": { "ws": "^8.18.0" }
+}
