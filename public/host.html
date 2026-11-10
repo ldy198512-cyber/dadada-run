@@ -45,7 +45,12 @@ main{flex:1;min-height:0;position:relative}
 .col h3 span{font-family:var(--body);font-weight:700;font-size:18px;font-variant-numeric:tabular-nums}
 .col ul{list-style:none;padding:12px;display:flex;flex-wrap:wrap;gap:8px;align-content:flex-start;overflow-y:auto;flex:1}
 .col li{background:var(--chalk);color:var(--ink);font-weight:700;font-size:17px;padding:6px 12px;border-radius:999px;animation:pop .3s ease-out}
+.col li{cursor:pointer;border:0;font-family:inherit}
 .col li.bot{opacity:.7}
+.col li.off{opacity:.45;text-decoration:line-through}
+.col li.pick{background:var(--gold);box-shadow:inset 0 0 0 3px var(--ink);opacity:1}
+.col li.pick::before{content:attr(data-n) '번 ';font-family:var(--display);font-weight:400}
+.col li:focus-visible{outline:4px solid var(--gold);outline-offset:2px}
 @keyframes pop{from{transform:scale(.4)}to{transform:scale(1)}}
 .controls{flex:none;display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:var(--ink);border-radius:16px;padding:14px 18px}
 .seg{display:flex;border:2px solid rgba(255,248,236,.45);border-radius:10px;overflow:hidden}
@@ -54,6 +59,12 @@ main{flex:1;min-height:0;position:relative}
 .lbl{font-weight:700;font-size:15px;opacity:.8}
 .start{font-family:var(--display);font-size:24px;padding:12px 26px;border-radius:12px;border:0;color:var(--chalk);background:var(--clay);box-shadow:0 5px 0 var(--clay-deep)}
 .start.alt{background:#2F6BFF;box-shadow:0 5px 0 #1D49BD}
+.start.rel{background:#1E9E5A;box-shadow:0 5px 0 #14703F}
+#relayHint{font-weight:700;font-size:14px;opacity:.85;flex-basis:100%;order:9}
+#skips{display:flex;flex-direction:column;gap:6px}
+#skips p{font-weight:700;font-size:13px;opacity:.7}
+#skips div{display:flex;flex-wrap:wrap;gap:6px}
+#skips button{padding:5px 10px;font-size:13px}
 .start:disabled{opacity:.4;cursor:not-allowed}
 .sp{margin-left:auto}
 
@@ -139,10 +150,12 @@ aside h2{font-family:var(--display);font-weight:400;font-size:28px}
       </div>
       <button class="start" type="button" data-start="solo" disabled>개인전 시작</button>
       <button class="start alt" type="button" data-start="team" disabled>본부 대항전 시작</button>
+      <button class="start rel" type="button" data-start="relay" disabled>릴레이 시작</button>
       <span class="sp"></span>
       <button class="ghost" id="botBtn" type="button">연습용 참가자 10명 추가</button>
       <button class="ghost" id="botOff" type="button">연습용 지우기</button>
       <button class="ghost" id="clearBtn" type="button">참가자 모두 내보내기</button>
+      <p id="relayHint"></p>
     </div>
   </section>
 
@@ -151,6 +164,7 @@ aside h2{font-family:var(--display);font-weight:400;font-size:28px}
     <aside>
       <h2 id="boardTitle">실시간 순위</h2>
       <ol id="board"></ol>
+      <div id="skips"></div>
       <p id="foot"></p>
     </aside>
   </section>
@@ -162,6 +176,7 @@ aside h2{font-family:var(--display);font-weight:400;font-size:28px}
       <button class="ghost" type="button" id="backBtn">대기 화면으로</button>
       <button class="start" type="button" data-start="solo">개인전 시작</button>
       <button class="start alt" type="button" data-start="team">본부 대항전 시작</button>
+      <button class="start rel" type="button" data-start="relay">릴레이 시작</button>
     </div>
   </section>
 </main>
@@ -174,7 +189,8 @@ aside h2{font-family:var(--display);font-weight:400;font-size:28px}
 <script>
 const $ = (s) => document.getElementById(s);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-let ws, TEAMS = [], roster = new Map(), st = { phase: 'lobby' }, off = 0, goal = 150, tick = null, pin = '';
+let ws, TEAMS = [], roster = new Map(), picks = [], st = { phase: 'lobby' }, off = 0, goal = 150, tick = null, pin = '';
+const MODE = { solo: '개인전', team: '본부 대항전', relay: '릴레이' };
 try { pin = sessionStorage.getItem('ddd_pin') || ''; } catch (e) {}
 const disp = new Map(); let slots = new Map(), lastBeep = 0, shownResults = null;
 const now = () => Date.now() + off;
@@ -193,7 +209,7 @@ function connect() {
 function on(m) {
   if (m.t === 'denied') { $('pin').classList.add('on'); $('pinIn').focus(); }
   else if (m.t === 'welcome') { $('pin').classList.remove('on'); TEAMS = m.teams; buildCols(); drawQR(m.lan); }
-  else if (m.t === 'roster') { roster = new Map(m.players.map(p => [p.id, p])); renderRoster(); }
+  else if (m.t === 'roster') { roster = new Map(m.players.map(p => [p.id, p])); picks = m.picks || []; renderRoster(); }
   else if (m.t === 'tick') { tick = m; off = m.now - Date.now(); renderBoard(); }
   else if (m.t === 'state') {
     const prev = st; st = m; off = m.now - Date.now();
@@ -207,7 +223,7 @@ function show(id) { for (const v of document.querySelectorAll('.view')) v.classL
 function route() {
   $('endBtn').style.display = st.phase === 'racing' ? '' : 'none';
   if (st.phase === 'lobby') { show('lobby'); shownResults = null; renderRoster(); }
-  else if (st.phase === 'countdown' || st.phase === 'racing') { show('race'); $('boardTitle').textContent = st.mode === 'team' ? '본부 순위' : '실시간 순위 (상위 10명)'; size(); }
+  else if (st.phase === 'countdown' || st.phase === 'racing') { show('race'); $('boardTitle').textContent = st.mode === 'solo' ? '실시간 순위 (상위 10명)' : '본부 순위'; buildSkips(); size(); }
   else if (st.phase === 'finished') { show('results'); if (shownResults !== st.results) { shownResults = st.results; renderResults(st.results); } $('status').textContent = '경기 종료'; }
 }
 
@@ -228,16 +244,34 @@ function buildCols() {
 }
 function renderRoster() {
   if (!TEAMS.length) return;
-  const on = [...roster.values()].filter(p => p.online);
+  const all = [...roster.values()], on = all.filter(p => p.online), legs = st.legs || 4;
   $('cnt').textContent = on.length;
   if (st.phase === 'lobby') $('status').textContent = on.length ? on.length + '명 입장' : '참가자를 기다리는 중';
+  let ready = on.length > 0, missing = [];
   TEAMS.forEach((_, i) => {
-    const list = on.filter(p => p.team === i), ul = $('tl' + i); $('tc' + i).textContent = list.length + '명';
+    const pk = picks[i] || [], list = all.filter(p => p.team === i && (p.online || pk.includes(p.id))), ul = $('tl' + i);
+    const nOn = list.filter(p => p.online).length, need = Math.min(legs, nOn);
+    $('tc' + i).textContent = nOn + '명 · 주자 ' + pk.length + '/' + need;
+    if (pk.length !== need || !pk.every(id => roster.get(id) && roster.get(id).online)) { ready = false; if (nOn) missing.push(TEAMS[i]); }
     const have = new Map([...ul.children].map(li => [li.dataset.id, li]));
-    for (const p of list) { let li = have.get(p.id); if (li) { have.delete(p.id); if (li.textContent !== p.name) li.textContent = p.name; } else { li = el('li', p.bot ? 'bot' : null, p.name); li.dataset.id = p.id; ul.append(li); } }
+    for (const p of list) {
+      let li = have.get(p.id);
+      if (li) have.delete(p.id); else { li = el('li', null, p.name); li.dataset.id = p.id; li.tabIndex = 0; li.setAttribute('role', 'button'); ul.append(li); }
+      if (li.firstChild.nodeValue !== p.name) li.firstChild.nodeValue = p.name;
+      const k = pk.indexOf(p.id); li.className = (p.bot ? 'bot ' : '') + (p.online ? '' : 'off ') + (k >= 0 ? 'pick' : ''); li.dataset.n = k >= 0 ? k + 1 : '';
+      li.setAttribute('aria-pressed', String(k >= 0));
+    }
     for (const li of have.values()) li.remove();
   });
-  for (const b of document.querySelectorAll('[data-start]')) b.disabled = !on.length;
+  for (const b of document.querySelectorAll('[data-start]')) b.disabled = b.dataset.start === 'relay' ? !ready : !on.length;
+  $('relayHint').textContent = !on.length ? '' : ready ? '릴레이 준비 완료. 노란 이름표의 번호 순서대로 달립니다.' : '릴레이는 본부마다 주자 ' + legs + '명을 지정해야 시작할 수 있습니다. 이름을 누른 순서대로 달립니다. 남은 본부: ' + missing.join(', ');
+}
+function pickFrom(e) { const li = e.target.closest('.col li'); if (li && (e.type === 'click' || e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); sendMsg({ t: 'pick', id: li.dataset.id }); } }
+$('cols').addEventListener('click', pickFrom); $('cols').addEventListener('keydown', pickFrom);
+function buildSkips() {
+  const box = $('skips'); box.textContent = ''; if (st.mode !== 'relay') return;
+  const row = el('div'); (st.relay || []).forEach((o, t) => { if (!o) return; const b = el('button', 'ghost', TEAMS[t]); b.type = 'button'; b.onclick = () => sendMsg({ t: 'skip', team: t }); row.append(b); });
+  box.append(el('p', null, '주자 연결이 끊겼을 때: 그 본부의 바통을 다음 주자에게 넘기기'), row);
 }
 $('goalSeg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; goal = +b.dataset.g; for (const x of $('goalSeg').children) x.setAttribute('aria-pressed', String(x === b)); });
 document.addEventListener('click', (e) => { const b = e.target.closest('[data-start]'); if (!b || b.disabled) return; beep(1, 0.01); sendMsg({ t: 'start', mode: b.dataset.start, goal }); });
@@ -252,7 +286,9 @@ $('fsBtn').onclick = () => { try { document.fullscreenElement ? document.exitFul
 // ---------- 순위표 ----------
 function renderBoard() {
   const ol = $('board'); if (!tick) return;
-  const rows = st.mode === 'team'
+  const rows = st.mode === 'relay'
+    ? tick.relay.map(([t, leg, frac, ms, rank, cur]) => ({ key: 't' + t, rank, color: TEAM_COLORS[t], name: TEAMS[t], sub: ms ? '' : (leg + 1) + '번 ' + ((roster.get(cur) || {}).name || ''), prog: (leg + frac) / st.legs, ms }))
+    : st.mode === 'team'
     ? tick.teams.map(([t, avg, ms, rank]) => ({ key: 't' + t, rank, color: TEAM_COLORS[t], name: TEAMS[t], sub: (st.members[t] || 0) + '명', prog: avg / st.goal, ms }))
     : tick.p.slice(0, 10).map(([id, taps, ms], i) => { const p = roster.get(id) || { name: '?', team: 0 }; return { key: id, rank: i + 1, color: TEAM_COLORS[p.team], name: p.name, sub: TEAMS[p.team], prog: taps / st.goal, ms }; });
   while (ol.children.length > rows.length) ol.lastChild.remove();
@@ -265,9 +301,10 @@ function renderBoard() {
     pg.style.width = r.ms ? '0' : Math.min(100, r.prog * 100) + '%'; li.classList.toggle('fin', !!r.ms);
   });
   const left = tick.closeAt ? Math.max(0, Math.ceil((tick.closeAt - now()) / 1000)) : 0;
-  if (st.mode === 'solo') { const fin = tick.p.filter(x => x[2]).length; $('foot').textContent = `골인 ${fin} / ${tick.p.length}명` + (tick.closeAt ? ` · 마감까지 ${left}초` : ''); }
+  if (st.mode === 'relay') $('foot').textContent = `본부마다 주자 ${st.legs}명이 한 바퀴씩 이어 달립니다.` + (tick.closeAt ? ` 마감까지 ${left}초` : '');
+  else if (st.mode === 'solo') { const fin = tick.p.filter(x => x[2]).length; $('foot').textContent = `골인 ${fin} / ${tick.p.length}명` + (tick.closeAt ? ` · 마감까지 ${left}초` : ''); }
   else $('foot').textContent = '인원이 달라도 공평하도록 본부별 1인당 평균 탭 수로 달립니다.' + (tick.closeAt ? ` 마감까지 ${left}초` : '');
-  $('status').textContent = (st.mode === 'team' ? '본부 대항전' : '개인전') + ' · ' + (tick.el / 1000).toFixed(1) + '초' + (tick.closeAt ? ` · 마감까지 ${left}초` : '');
+  $('status').textContent = MODE[st.mode] + ' · ' + (tick.el / 1000).toFixed(1) + '초' + (tick.closeAt ? ` · 마감까지 ${left}초` : '');
 }
 
 // ---------- 트랙 그리기 ----------
@@ -277,18 +314,34 @@ addEventListener('resize', size);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 function outlined(text, x, y, fill) { ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(20,32,43,.9)'; ctx.lineWidth = 4; ctx.strokeText(text, x, y); ctx.fillStyle = fill; ctx.fillText(text, x, y); }
 
-function drawTrack(lanes, ty, th, x0, x1) {
-  for (let x = 0; x < W; x += 160) { ctx.fillStyle = (x / 160) % 2 ? '#0F4D36' : '#17694A'; ctx.fillRect(x, 0, 160, H); }
-  ctx.fillStyle = '#D4573A'; ctx.fillRect(0, ty, W, th);
-  ctx.fillStyle = 'rgba(180,67,42,.45)'; for (let i = 0; i < lanes; i += 2) ctx.fillRect(0, ty + th / lanes * i, W, th / lanes);
-  ctx.strokeStyle = 'rgba(255,248,236,.7)'; ctx.lineWidth = 3;
-  for (let i = 0; i <= lanes; i++) { const y = ty + th / lanes * i; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
-  ctx.fillStyle = 'rgba(255,248,236,.9)'; ctx.fillRect(x0 - 4, ty, 6, th);
-  const cw = 14, rowsN = Math.ceil(th / cw);
-  for (let r = 0; r < rowsN; r++) for (let c = 0; c < 2; c++) { ctx.fillStyle = (r + c) % 2 ? '#14202B' : '#FFF8EC'; ctx.fillRect(x1 + c * cw, ty + r * cw, cw, Math.min(cw, ty + th - (ty + r * cw))); }
-  ctx.font = `400 22px ${getComputedStyle(document.body).getPropertyValue('--display')}`; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-  outlined('출발', x0, ty - 10, '#FFF8EC'); outlined('결승', x1 + cw, ty - 10, '#FFD447');
+// 타원형 운동장: 아래 직선의 출발선에서 시계 반대 방향으로 한 바퀴 돌아 같은 선으로 골인
+let G = null;
+function geom() { const mt = 84, mb = 30; let Ro = Math.min((H - mt - mb) / 2, (W - 60) / 2); const cx = W / 2, cy = mt + Ro, a = Math.max(0, W / 2 - Ro - 30), tw = Ro * 0.5, r0 = Ro - tw / 2; return { cx, cy, a, Ro, tw, r0, xs: cx - a * 0.3, P: 4 * a + 2 * Math.PI * r0 }; }
+function stadium(R) { const { cx, cy, a } = G; ctx.beginPath(); ctx.moveTo(cx - a, cy + R); ctx.lineTo(cx + a, cy + R); ctx.arc(cx + a, cy, R, Math.PI / 2, -Math.PI / 2, true); ctx.lineTo(cx - a, cy - R); ctx.arc(cx - a, cy, R, -Math.PI / 2, Math.PI / 2, true); ctx.closePath(); }
+// 진행률 u(0~1)와 레인 위치 off → [x, y, 바라보는 방향]
+function pos(u, off) {
+  const { cx, cy, a, r0, xs, P } = G; let d = clamp(u, 0, 1) * P; const R = r0 + off, L1 = cx + a - xs, C = Math.PI * r0;
+  if (d < L1) return [xs + d, cy + R, 1]; d -= L1;
+  if (d < C) { const th = d / r0; return [cx + a + R * Math.sin(th), cy + R * Math.cos(th), Math.cos(th) >= 0 ? 1 : -1]; } d -= C;
+  if (d < 2 * a) return [cx + a - d, cy - R, -1]; d -= 2 * a;
+  if (d < C) { const th = d / r0; return [cx - a - R * Math.sin(th), cy - R * Math.cos(th), Math.cos(th) >= 0 ? -1 : 1]; } d -= C;
+  return [cx - a + d, cy + R, 1];
 }
+function drawOval(lanes, display) {
+  const { cx, cy, Ro, tw, xs } = G;
+  for (let x = 0; x < W; x += 160) { ctx.fillStyle = (x / 160) % 2 ? '#0F4D36' : '#17694A'; ctx.fillRect(x, 0, 160, H); }
+  stadium(Ro + 8); ctx.fillStyle = '#FFF8EC'; ctx.fill();
+  stadium(Ro); ctx.fillStyle = '#D4573A'; ctx.fill();
+  ctx.strokeStyle = 'rgba(255,248,236,.65)'; ctx.lineWidth = 2.5;
+  for (let i = 1; i < lanes; i++) { stadium(Ro - tw * i / lanes); ctx.stroke(); }
+  stadium(Ro - tw); ctx.fillStyle = '#FFF8EC'; ctx.fill();
+  stadium(Ro - tw - 6); ctx.fillStyle = '#126043'; ctx.fill();
+  const rows = 10, c = tw / rows;
+  for (let r = 0; r < rows; r++) for (let k = 0; k < 2; k++) { ctx.fillStyle = (r + k) % 2 ? '#14202B' : '#FFF8EC'; ctx.fillRect(xs - c + k * c, cy + Ro - tw + r * c, c, c); }
+  ctx.font = `400 20px ${display}`; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  outlined('출발 · 결승', xs, cy + Ro - tw - 16, '#FFD447');
+}
+function runnerAt(x, y, dir, s, color, ph, moving) { ctx.save(); ctx.translate(x, y); ctx.scale(dir, 1); drawRunner(ctx, 0, 0, s, color, ph, moving); ctx.restore(); }
 
 function step(key, target, dt) {
   let d = disp.get(key); if (!d) { d = { p: 0, ph: Math.random() * 6, v: 0 }; disp.set(key, d); }
@@ -302,33 +355,69 @@ function frame(t) {
   const dt = Math.min(0.05, (t - last) / 1000); last = t;
   if ($('race').classList.contains('on') && W) {
     ctx.clearRect(0, 0, W, H);
-    const ty = 46, th = H - 76, display = getComputedStyle(document.body).getPropertyValue('--display'), bodyF = getComputedStyle(document.body).getPropertyValue('--body');
-    if (st.mode === 'team') {
-      const act = TEAMS.map((_, i) => i).filter(i => (st.members || [])[i] > 0), L = Math.max(1, act.length), lh = th / L;
-      const s = Math.min(lh * 0.74, 170), x0 = Math.max(250, W * 0.2), x1 = W - 70;
-      drawTrack(L, ty, th, x0, x1);
-      act.forEach((tm, i) => {
-        const row = tick && tick.teams.find(x => x[0] === tm); const prog = row ? Math.min(1, row[1] / st.goal) : 0;
-        const d = step('t' + tm, prog, dt), y = ty + lh * (i + 1) - lh * 0.13, x = x0 + (x1 - x0) * d.p;
-        ctx.textAlign = 'left'; ctx.font = `400 ${clamp(lh * 0.3, 20, 42)}px ${display}`; outlined(TEAMS[tm], 20, ty + lh * i + lh * 0.45, '#FFF8EC');
-        ctx.font = `700 ${clamp(lh * 0.16, 13, 20)}px ${bodyF}`; outlined(st.members[tm] + '명 · 평균 ' + (row ? Math.floor(row[1]) : 0) + '탭', 22, ty + lh * i + lh * 0.45 + clamp(lh * 0.22, 18, 30), '#FFF8EC');
-        drawRunner(ctx, x, y, s, TEAM_COLORS[tm], d.ph, d.v > 0.004 && !(row && row[2]));
-        ctx.textAlign = 'center'; ctx.font = `400 ${clamp(s * 0.24, 16, 34)}px ${display}`;
-        outlined(row && row[2] ? row[3] + '위 골인' : Math.floor(prog * 100) + '%', x, y - s * 1.02, row && row[2] ? '#FFD447' : '#FFF8EC');
+    const cs = getComputedStyle(document.body), display = cs.getPropertyValue('--display'), bodyF = cs.getPropertyValue('--body');
+    G = geom(); const { cx, cy, Ro, tw } = G, inR = Ro - tw;
+    const elapsed = tick ? (tick.el / 1000).toFixed(1) + '초' : '';
+    const left = tick && tick.closeAt ? '마감까지 ' + Math.max(0, Math.ceil((tick.closeAt - now()) / 1000)) + '초' : '';
+    if (st.mode === 'relay') {
+      const act = TEAMS.map((_, i) => i).filter(i => (st.relay || [])[i]), L = Math.max(1, act.length), LEGS = st.legs || 4;
+      drawOval(L, display);
+      const rowOf = (tm) => tick && tick.relay && tick.relay.find(x => x[0] === tm), nameOf = (id) => (roster.get(id) || {}).name || '';
+      const lh = Math.min(inR * 1.5 / (L + 1.4), 46), top = cy - lh * (L + 1.2) / 2;
+      ctx.textAlign = 'center'; ctx.font = `400 ${lh * 0.95}px ${display}`; ctx.fillStyle = '#FFF8EC'; ctx.fillText('릴레이  ' + elapsed, cx, top + lh * 0.6);
+      const order = tick && tick.relay ? tick.relay.map(x => x[0]) : act;
+      order.forEach((tm, i) => {
+        const row = rowOf(tm), y = top + lh * (i + 1.9);
+        ctx.fillStyle = TEAM_COLORS[tm]; ctx.beginPath(); ctx.arc(cx - lh * 5.2, y - lh * 0.24, lh * 0.26, 0, 7); ctx.fill();
+        ctx.textAlign = 'left'; ctx.font = `700 ${lh * 0.62}px ${bodyF}`; ctx.fillStyle = row && row[3] ? '#FFD447' : '#FFF8EC';
+        ctx.fillText(TEAMS[tm] + '  ' + (row && row[3] ? row[4] + '위 골인 · ' + fmtTime(row[3]) : `${row ? row[1] + 1 : 1}번 주자 ${nameOf(row ? row[5] : st.relay[tm][0])} (${row ? row[1] + 1 : 1}/${LEGS})`), cx - lh * 4.6, y);
       });
+      if (left) { ctx.textAlign = 'center'; ctx.font = `700 ${lh * 0.6}px ${bodyF}`; ctx.fillStyle = '#FFD447'; ctx.fillText(left, cx, top + lh * (L + 2.2)); }
+      const s = clamp(tw / L * 2.1, 48, 120), items = act.map((tm, i) => {
+        const row = rowOf(tm), total = row ? (row[3] ? LEGS : row[1] + row[2]) : 0, d = step('t' + tm, total, dt);
+        const [x, y, dir] = pos(d.p >= LEGS - 0.002 ? 0 : d.p % 1, (-0.5 + (i + 0.72) / L) * tw); return { tm, row, d, x, y, dir };
+      }).sort((p, q) => p.y - q.y);
+      for (const it of items) runnerAt(it.x, it.y, it.dir, s, TEAM_COLORS[it.tm], it.d.ph, it.d.v > 0.01 && !(it.row && it.row[3]));
+      ctx.textAlign = 'center'; ctx.font = `400 ${clamp(s * 0.3, 18, 30)}px ${display}`;
+      for (const it of items) outlined(it.row && it.row[3] ? TEAMS[it.tm] + ' ' + it.row[4] + '위' : nameOf(it.row ? it.row[5] : st.relay[it.tm][0]) || TEAMS[it.tm], it.x, it.y - s * 1.06, it.row && it.row[3] ? '#FFD447' : '#FFF8EC');
+    } else if (st.mode === 'team') {
+      const act = TEAMS.map((_, i) => i).filter(i => (st.members || [])[i] > 0), L = Math.max(1, act.length);
+      drawOval(L, display);
+      // 운동장 안쪽: 본부별 현황
+      const lh = Math.min(inR * 1.5 / (L + 1.4), 46), top = cy - lh * (L + 1.2) / 2;
+      ctx.textAlign = 'center'; ctx.font = `400 ${lh * 0.95}px ${display}`; ctx.fillStyle = '#FFF8EC'; ctx.fillText('본부 대항전  ' + elapsed, cx, top + lh * 0.6);
+      const order = tick ? tick.teams.map(x => x[0]) : act;
+      order.forEach((tm, i) => {
+        const row = tick && tick.teams.find(x => x[0] === tm), y = top + lh * (i + 1.9);
+        ctx.fillStyle = TEAM_COLORS[tm]; ctx.beginPath(); ctx.arc(cx - lh * 5.2, y - lh * 0.24, lh * 0.26, 0, 7); ctx.fill();
+        ctx.textAlign = 'left'; ctx.font = `700 ${lh * 0.62}px ${bodyF}`; ctx.fillStyle = row && row[2] ? '#FFD447' : '#FFF8EC';
+        ctx.fillText(`${TEAMS[tm]}  ${st.members[tm]}명 · 평균 ${row ? Math.floor(row[1]) : 0}탭` + (row && row[2] ? ` · ${row[3]}위 골인` : ''), cx - lh * 4.6, y);
+      });
+      if (left) { ctx.textAlign = 'center'; ctx.font = `700 ${lh * 0.6}px ${bodyF}`; ctx.fillStyle = '#FFD447'; ctx.fillText(left, cx, top + lh * (L + 2.2)); }
+      const s = clamp(tw / L * 2.1, 48, 120), items = act.map((tm, i) => {
+        const row = tick && tick.teams.find(x => x[0] === tm), prog = row ? Math.min(1, row[1] / st.goal) : 0, d = step('t' + tm, prog, dt);
+        const [x, y, dir] = pos(d.p, (-0.5 + (i + 0.72) / L) * tw); return { tm, row, prog, d, x, y, dir };
+      }).sort((p, q) => p.y - q.y);
+      for (const it of items) runnerAt(it.x, it.y, it.dir, s, TEAM_COLORS[it.tm], it.d.ph, it.d.v > 0.004 && !(it.row && it.row[2]));
+      ctx.textAlign = 'center'; ctx.font = `400 ${clamp(s * 0.3, 18, 30)}px ${display}`;
+      for (const it of items) outlined(TEAMS[it.tm] + ' ' + (it.row && it.row[2] ? it.row[3] + '위' : Math.floor(it.prog * 100) + '%'), it.x, it.y - s * 1.06, it.row && it.row[2] ? '#FFD447' : '#FFF8EC');
     } else {
-      const list = tick ? tick.p : []; const N = Math.max(1, list.length);
+      const list = tick ? tick.p : [], N = Math.max(1, list.length);
       if (list.length && slots.size !== list.length) { const ids = list.map(x => x[0]).sort(() => Math.random() - 0.5); slots = new Map(ids.map((id, i) => [id, i])); }
-      const rh = th / N, s = clamp(rh * 2.7, 28, Math.min(120, th * 0.6)), x0 = Math.max(150, W * 0.14), x1 = W - 60, f = clamp(rh * 0.92, 11, 24);
-      drawTrack(Math.min(N, 8), ty, th, x0, x1);
-      const rankOf = new Map(list.map((x, i) => [x[0], i + 1]));
-      list.slice().sort((a, b) => slots.get(a[0]) - slots.get(b[0])).forEach(([id, taps, ms]) => {
+      drawOval(6, display);
+      ctx.textAlign = 'center'; ctx.fillStyle = '#FFF8EC'; ctx.font = `400 ${clamp(inR * 0.34, 28, 76)}px ${display}`; ctx.fillText('개인전', cx, cy - inR * 0.08);
+      ctx.font = `400 ${clamp(inR * 0.5, 36, 110)}px ${display}`; ctx.fillStyle = '#FFD447'; ctx.fillText(elapsed, cx, cy + inR * 0.42);
+      if (left) { ctx.font = `700 ${clamp(inR * 0.13, 15, 26)}px ${bodyF}`; ctx.fillStyle = '#FFF8EC'; ctx.fillText(left, cx, cy + inR * 0.66); }
+      const s = clamp(tw * 0.3, 26, 54), f = clamp(s * 0.36, 11, 16);
+      const items = list.map(([id, taps, ms], i) => {
         const p = roster.get(id) || { name: '?', team: 0 }, d = step(id, Math.min(1, taps / st.goal), dt);
-        const y = ty + rh * (slots.get(id) + 1) - Math.min(rh * 0.12, 8), x = x0 + (x1 - x0) * d.p, rk = rankOf.get(id);
-        drawRunner(ctx, x, y, s, TEAM_COLORS[p.team], d.ph, d.v > 0.004 && !ms);
-        ctx.textAlign = 'right'; ctx.font = `700 ${f}px ${bodyF}`;
-        outlined((ms ? rk + '위 ' : '') + p.name, x - s * 0.42, y - Math.min(rh * 0.2, s * 0.3), rk <= 3 && taps > 0 ? '#FFD447' : '#FFF8EC');
-      });
+        const [x, y, dir] = pos(d.p, (-0.5 + (slots.get(id) + 0.9) / (N + 0.6)) * tw); return { p, d, x, y, dir, ms, taps, rk: i + 1 };
+      }).sort((p, q) => p.y - q.y);
+      for (const it of items) runnerAt(it.x, it.y, it.dir, s, TEAM_COLORS[it.p.team], it.d.ph, it.d.v > 0.004 && !it.ms);
+      ctx.textAlign = 'center';
+      const lead = (it) => it.rk <= 3 && it.taps > 0;
+      ctx.font = `700 ${f}px ${bodyF}`; for (const it of items) if (!lead(it)) outlined((it.ms ? it.rk + '위 ' : '') + it.p.name, it.x, it.y - s * 1.05, '#FFF8EC');
+      ctx.font = `700 ${f * 1.45}px ${bodyF}`; for (const it of items) if (lead(it)) outlined(it.rk + '위 ' + it.p.name, it.x, it.y - s * 1.05, '#FFD447');
     }
     // 카운트다운
     const remain = st.startAt - now(), cd = $('cd');
@@ -350,6 +439,11 @@ function renderResults(r) {
     const rest = el('div', 'rest');
     r.list.slice(3).forEach(x => { const d = el('div'); const dot = el('i'); dot.style.background = TEAM_COLORS[x.team]; d.append(el('b', null, x.rank + '위'), dot, el('span', null, x.name), el('span', null, x.ms ? fmtTime(x.ms) : x.taps + '탭')); rest.append(d); });
     body.append(pod, rest);
+  } else if (r.mode === 'relay') {
+    $('resTitle').textContent = '릴레이 결과';
+    const rows = el('div', 'trows');
+    r.teams.forEach(x => { const d = el('div', 'trow' + (x.rank === 1 ? ' win' : '')); const dot = el('i'); dot.style.background = TEAM_COLORS[x.team]; const mid = el('div'); mid.append(el('div', 'nm', TEAMS[x.team]), el('div', 'meta', x.runners.map((q, k) => `${k + 1}번 ${q.name}` + (q.ms ? ' ' + fmtTime(q.ms) : '')).join(' · '))); d.append(el('b', null, x.rank + '위'), dot, mid, el('div', 'v', x.ms ? fmtTime(x.ms) : Math.floor(x.prog * 100) + '% 지점')); rows.append(d); });
+    body.append(rows);
   } else {
     $('resTitle').textContent = '본부 대항전 결과';
     const rows = el('div', 'trows');

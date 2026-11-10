@@ -48,7 +48,9 @@ input[type=text]:focus-visible{outline:4px solid var(--gold);outline-offset:1px}
 .link{background:none;border:0;color:var(--chalk);font:inherit;font-weight:600;text-decoration:underline;padding:12px;opacity:.85}
 
 /* 경기 */
-#race{background:var(--clay);padding:0;touch-action:none}
+#race{background:var(--clay);padding:0;touch-action:none;transition:background .2s}
+#race.idle{background:#4A3A36}
+#race.idle #hint{text-shadow:0 4px 0 rgba(0,0,0,.35)}
 #race::before,#race::after{content:'';position:absolute;left:0;right:0;height:4px;background:rgba(255,248,236,.55)}
 #race::before{top:21%}#race::after{bottom:15%}
 #top{position:relative;z-index:2;padding:max(18px,env(safe-area-inset-top)) 20px 0;display:flex;justify-content:space-between;align-items:flex-start;pointer-events:none}
@@ -131,7 +133,7 @@ const $ = (s) => document.getElementById(s);
 const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 let id = store.get('ddd_id'); if (!id) { id = 'p' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); store.set('ddd_id', id); }
 let TEAMS = [], me = { name: store.get('ddd_name') || '', team: -1 }, joined = false;
-let ws, st = { phase: 'lobby' }, off = 0, count = 0, sent = 0, info = {}, vel = 0, phase = 0, scroll = 0;
+let ws, st = { phase: 'lobby' }, off = 0, count = 0, sent = 0, info = {}, vel = 0, phase = 0, scroll = 0, wasTurn = false, turnBase = 0;
 const savedTeam = store.get('ddd_team'); if (savedTeam !== null) me.team = +savedTeam;
 $('name').value = me.name;
 
@@ -165,7 +167,7 @@ function on(m) {
   else if (m.t === 'state') {
     const prev = st; st = m; off = m.now - Date.now();
     if (!joined) return;
-    if (m.phase === 'countdown' && (prev.phase !== 'countdown' || prev.startAt !== m.startAt)) { count = 0; sent = 0; info = {}; vel = 0; }
+    if (m.phase === 'countdown' && (prev.phase !== 'countdown' || prev.startAt !== m.startAt)) { count = 0; sent = 0; info = {}; vel = 0; wasTurn = false; turnBase = 0; }
     route();
   }
 }
@@ -174,7 +176,7 @@ function route() {
   if (!joined) return show('join');
   if (st.phase === 'lobby') { $('waitTitle').textContent = '입장 완료'; $('waitMsg').innerHTML = '앞의 큰 화면에 이름이 보이면 준비 끝!<br>곧 시작합니다<span class="dots"></span>'; $('editBtn').style.display = ''; return show('wait'); }
   if ((st.phase === 'countdown' || st.phase === 'racing') && !st.in) { $('waitTitle').textContent = '경기 진행 중'; $('waitMsg').textContent = '지금 경기가 끝나면 다음 경기부터 함께 달립니다.'; $('editBtn').style.display = 'none'; return show('wait'); }
-  if (st.phase === 'countdown' || st.phase === 'racing') { $('sub').textContent = st.mode === 'team' ? TEAMS[me.team] + ' 대항전' : '개인전'; show('race'); sizeCanvas(); return; }
+  if (st.phase === 'countdown' || st.phase === 'racing') { $('sub').textContent = st.mode === 'team' ? TEAMS[me.team] + ' 대항전' : st.mode === 'relay' ? TEAMS[me.team] + ' 릴레이' : '개인전'; show('race'); sizeCanvas(); return; }
   if (st.phase === 'finished') { renderDone(); return show('done'); }
 }
 
@@ -188,6 +190,12 @@ function renderDone() {
     if (!mine) { $('doneBig').textContent = '관전'; $('doneSub').textContent = '이번 경기는 참가하지 않았어요'; }
     else { $('doneBig').textContent = mine.rank + '위'; $('doneSub').textContent = (mine.ms ? '기록 ' + fmtTime(mine.ms) : mine.taps + '탭까지 달렸어요') + ' · 전체 ' + r.list.length + '명'; }
     r.list.slice(0, 3).forEach(x => row(TEAM_COLORS[x.team], x.rank + '위  ' + x.name, x.ms ? fmtTime(x.ms) : x.taps + '탭', x.id === id));
+  } else if (r.mode === 'relay') {
+    const t = r.teams.find(x => x.team === me.team);
+    $('doneTop').textContent = '릴레이 결과';
+    if (!t) { $('doneBig').textContent = '관전'; $('doneSub').textContent = '이번 경기는 참가하지 않았어요'; }
+    else { const my = t.runners.filter(x => x.id === id && x.ms); $('doneBig').textContent = t.rank + '위'; $('doneSub').textContent = TEAMS[me.team] + (my.length ? ' · 내 구간 기록 ' + my.map(x => fmtTime(x.ms)).join(', ') : ''); }
+    r.teams.forEach(x => row(TEAM_COLORS[x.team], x.rank + '위  ' + TEAMS[x.team], x.ms ? fmtTime(x.ms) : Math.floor(x.prog * 100) + '% 지점', x.team === me.team));
   } else {
     const t = r.teams.find(x => x.team === me.team); const mine = r.players.find(x => x.id === id);
     $('doneTop').textContent = '본부 대항전 결과';
@@ -220,6 +228,7 @@ $('race').addEventListener('pointerdown', (e) => {
   if (st.phase !== 'racing' && !(st.phase === 'countdown' && now() >= st.startAt)) return;
   if (now() < st.startAt) return;
   if (st.mode === 'solo' && count >= st.goal) return;
+  if (st.mode === 'relay' && !info.turn) return; // 릴레이는 내 차례일 때만
   count++; vel = Math.min(vel + 1, 14);
   const r = document.createElement('div'); r.className = 'rip'; r.style.left = e.clientX + 'px'; r.style.top = e.clientY + 'px';
   $('race').append(r); setTimeout(() => r.remove(), 360);
@@ -249,6 +258,7 @@ function frame(t) {
     else cd.classList.remove('on');
 
     const goal = st.goal || 150;
+    if (st.mode !== 'relay') $('race').classList.remove('idle');
     if (st.mode === 'solo') {
       const fin = count >= goal;
       $('rank').firstChild.nodeValue = info.rank || '-';
@@ -256,6 +266,20 @@ function frame(t) {
       $('barL').textContent = '내 탭 ' + Math.min(count, goal) + ' / ' + goal;
       $('barR').textContent = info.total ? '전체 ' + info.total + '명' : '';
       $('hint').textContent = fin ? '골인!' : (remain > 0 ? '' : '두드리세요!');
+    } else if (st.mode === 'relay') {
+      $('rank').firstChild.nodeValue = info.rank || '-';
+      if (info.turn && !wasTurn) { turnBase = count; try { navigator.vibrate && navigator.vibrate([150, 80, 150]); } catch (x) {} }
+      wasTurn = !!info.turn;
+      let hint = '', l = '', fill = info.prog || 0;
+      if (info.role === 'runner' && info.turn) { hint = remain > 0 ? '첫 주자!' : '지금! 탭탭!'; l = info.myLeg + '번 주자 · 내 탭 ' + (count - turnBase) + ' / ' + st.lap; fill = Math.max(info.frac || 0, Math.min(0.99, (count - turnBase) / (st.lap || 75))); }
+      else if (info.ms) { hint = '본부 골인!'; l = '수고하셨습니다'; fill = 1; }
+      else if (info.role === 'runner' && info.wait > 0) { hint = info.wait === 1 ? '다음 차례!' : '대기 중'; l = info.myLeg + '번 주자 · ' + (info.wait === 1 ? '곧 바통을 받습니다' : '앞으로 ' + info.wait + '번째'); }
+      else if (info.role === 'runner') { hint = '바통 전달!'; l = '끝까지 응원해 주세요'; }
+      else if (info.role === 'cheer') { hint = '응원!'; l = '우리 본부 ' + Math.round((info.prog || 0) * 100) + '%'; }
+      else { hint = '관전'; l = ''; }
+      $('race').classList.toggle('idle', !info.turn);
+      $('hint').textContent = hint; $('fill').style.width = Math.min(100, fill * 100) + '%';
+      $('barL').textContent = l; $('barR').textContent = info.cur && !info.turn ? '지금 주자 ' + info.cur : '';
     } else {
       $('rank').firstChild.nodeValue = info.rank || '-';
       $('fill').style.width = Math.min(100, (info.avg || 0) / goal * 100) + '%';
